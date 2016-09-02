@@ -1,0 +1,7 @@
+#!/bin/bash
+
+QUERY=$1
+./query.rb "$QUERY" \
+    | ./extracthits.rb \
+    | jq . \
+    > /apps/git/mirador-static/annotation-solr.json
