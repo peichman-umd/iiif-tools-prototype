@@ -6,3 +6,4 @@ gem "faraday"
 gem "faraday_middleware"
 
 gem "linkeddata"
+gem "rmagick"
