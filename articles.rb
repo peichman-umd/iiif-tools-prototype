@@ -1,5 +1,6 @@
 #!/usr/bin/env ruby
 
+require './alto.rb'
 require 'nokogiri'
 require 'json'
 require 'rmagick'
@@ -39,31 +40,12 @@ mets.xpath('mets:fileSec//mets:file[@USE="ocr"]', nsmap).each do |file|
     # get master file
     master_file = file.xpath('../mets:file[@USE="master"]', nsmap).first
     master_file_href = master_file.xpath('mets:FLocat/@xlink:href', nsmap).first.to_s
-    file_for[id][:master] = File.expand_path(master_file_href, basepath)
+    master_file_path = File.expand_path(master_file_href, basepath)
 
     # get resolution to calculate pixel coordinates
-    image = Magick::ImageList.new(file_for[id][:master])
+    image = Magick::ImageList.new(master_file_path)
 
-    # get measurement unit scale factor
-    # see https://www.loc.gov/standards/alto/description.html
-    unit = xmldoc.xpath('/xmlns:alto/xmlns:Description/xmlns:MeasurementUnit/text()').first.to_s
-    xres = image.x_resolution
-    yres = image.y_resolution
-
-    if unit == 'inch1200'
-      file_for[id][:xscale] = xres / 1200.0
-      file_for[id][:yscale] = yres / 1200.0
-    elsif unit == 'mm10'
-      file_for[id][:xscale] = xres / 254.0
-      file_for[id][:yscale] = yres / 254.0
-    elsif unit == 'pixel'
-      file_for[id][:xscale] = 1
-      file_for[id][:yscale] = 1
-    elsif
-      abort("Unknown MeasurementUnit #{unit}")
-    end
-
-    file_for[id][:xmldoc] = xmldoc
+    file_for[id][:ocr] = OCRResource.new(xmldoc, image)
   end
 end
 
@@ -72,38 +54,32 @@ articles = []
 # find articles
 mets.xpath('mets:structMap//mets:div[@TYPE="article"]', nsmap).each do |article|
   annotations = []
-  label = article.xpath('@LABEL').first.to_s
-  struct_id = article.xpath('@ID').first.to_s
+  label = article.attribute('LABEL').value
+  struct_id = article.attribute('ID').value
   article.xpath('.//mets:area', nsmap).each do |area|
-    fileid = area.xpath('@FILEID').first.to_s
-    blockid = area.xpath('@BEGIN').first.to_s
+    fileid  = area.attribute('FILEID').value
+    blockid = area.attribute('BEGIN').value
 
     file = file_for[fileid]
+    ocr = file[:ocr]
 
-    block = file[:xmldoc].xpath("//xmlns:TextBlock[@ID='#{blockid}']").first
-
-    hpos   = block.xpath('@HPOS').first.to_s.to_i
-    vpos   = block.xpath('@VPOS').first.to_s.to_i
-    width  = block.xpath('@WIDTH').first.to_s.to_i
-    height = block.xpath('@HEIGHT').first.to_s.to_i
-
-    scale = file[:scale]
-
-    x = (hpos   * file[:xscale]).round
-    y = (vpos   * file[:yscale]).round
-    w = (width  * file[:xscale]).round
-    h = (height * file[:yscale]).round
-    coords = [x,y,w,h].join(',')
+    block = ocr.textblock(blockid)
 
     annotations.push({
-      "@id" => "#{fileid}-#{blockid}",
+      "@id" => "#{fileid}-#{block.id}",
       "@type" => ["oa:Annotation", "umd:Article"],
-      "resource" => [],
+      "resource" => [
+        {
+          "@type" => "cnt:ContentAsText",
+          "format" => "text/plain",
+          "chars" => block.text,
+        },
+      ],
       "on" => {
         "@type" => "oa:SpecificResource",
         "selector" => {
           "@type" => "oa:FragmentSelector",
-          "value" => "xywh=#{coords}",
+          "value" => "xywh=#{ocr.coordinates(block)}",
         },
         #TODO: canvas URI for the page that this appears on
         "full" => file[:group],
