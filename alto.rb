@@ -79,6 +79,10 @@ class Region
 end
 
 class TextBlock < Region
+  def element
+    @element
+  end
+
   def lines
     @element.xpath('xmlns:TextLine').map { |node| TextLine.new(node) }
   end
@@ -87,6 +91,14 @@ class TextBlock < Region
     text = ''
     self.lines.each do |line|
       text += line.text + "\n"
+    end
+    text
+  end
+
+  def tagged_text(ocr_resource)
+    text = ''
+    self.lines.each do |line|
+      text += line.tagged_text(ocr_resource) + "\n"
     end
     text
   end
@@ -100,6 +112,19 @@ class TextLine < Region
         text += ' '
       else
         text += node.attribute('CONTENT').value
+      end
+    end
+    text
+  end
+
+  def tagged_text(ocr_resource)
+    text = ''
+    @element.xpath('xmlns:String|xmlns:SP|xmlns:HYP').each do |node|
+      if node.name == 'SP'
+        text += ' '
+      else
+        text += node.attribute('CONTENT').value
+        text += "{#{ocr_resource.coordinates(self)}}"
       end
     end
     text
